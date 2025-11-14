@@ -16,8 +16,12 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MEASUREMENT_ID: string;
 }
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
+// FIX: Augment the global ImportMeta interface to include Vite's `env` property.
+// The original local interface declaration was ineffective for augmenting a global type.
+declare global {
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
 }
 
 // Firebase configuration is loaded from environment variables for security and flexibility.
