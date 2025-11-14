@@ -2,13 +2,13 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { User, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, doc, writeBatch, Timestamp, orderBy, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from './firebase';
-import type { View, StudySet, StudySourceType, StudySetDocument, ProcessableFile, Folder, Flashcard } from './types';
-import { processNewSource } from './services/geminiService';
-import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical, IconChartBar } from './components/Icons';
-import StudySetView from './components/StudySetView';
-import { FlashcardTrainer } from './components/FlashcardTrainer';
-import ProgressDashboard from './components/ProgressDashboard';
+import { auth, db, storage } from '../firebase';
+import type { View, StudySet, StudySourceType, StudySetDocument, ProcessableFile, Folder, Flashcard } from '@/types';
+import { processNewSource } from '@/services/geminiService';
+import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical, IconChartBar } from '@/components/Icons';
+import StudySetView from '@/components/StudySetView';
+import { FlashcardTrainer } from '@/components/FlashcardTrainer';
+import ProgressDashboard from '@/components/ProgressDashboard';
 
 // AuthView Component
 const AuthView: React.FC<{

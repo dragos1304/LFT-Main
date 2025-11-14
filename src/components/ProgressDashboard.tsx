@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
-import type { Flashcard } from '../types';
-import { IconArrowLeft, IconChartBar } from './Icons';
+import { db } from '../../firebase';
+import type { Flashcard } from '@/types';
+import { IconArrowLeft, IconChartBar } from '@/components/Icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { FlashcardTrainer } from './FlashcardTrainer';
+import { FlashcardTrainer } from '@/components/FlashcardTrainer';
 
 const MasteryDonutChart: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
     const data = useMemo(() => {
