@@ -45,6 +45,8 @@ export interface Keyword {
 
 export interface Flashcard {
   id: string;
+  // FIX: Added studySetId to make flashcards self-contained for updates.
+  studySetId: string;
   frontText: string;
   backText: string;
   isUserEdited: boolean;

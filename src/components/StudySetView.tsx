@@ -84,6 +84,8 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
           const data = d.data();
           return {
               id: d.id,
+              // FIX: Add studySetId to each flashcard for context.
+              studySetId: studySetDoc.id,
               frontText: data.frontText || data.front_text,
               backText: data.backText || data.back_text,
               isUserEdited: data.isUserEdited ?? false,
@@ -299,7 +301,8 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
       <div className="mt-6">
         {renderContent()}
       </div>
-      {isTrainerOpen && <FlashcardTrainer flashcards={dueFlashcards} studySetId={studySet.id} onClose={() => { setIsTrainerOpen(false); fetchSubCollections(); }} />}
+      {/* FIX: Removed studySetId prop as it's now part of the flashcard object. */}
+      {isTrainerOpen && <FlashcardTrainer flashcards={dueFlashcards} onClose={() => { setIsTrainerOpen(false); fetchSubCollections(); }} />}
     </div>
   );
 };

@@ -365,15 +365,21 @@ const DashboardView: React.FC<{ user: User; onSelectStudySet: (studySet: StudySe
 
         setIsLoading(true);
         try {
-            const flashcardPromises = setsInFolder.map(set => 
+            // FIX: Fetch flashcards and map them to include their parent studySetId
+            const flashcardPromises = setsInFolder.map(set =>
                 getDocs(collection(db, `study_sets/${set.id}/flashcards`))
             );
             const flashcardSnapshots = await Promise.all(flashcardPromises);
-            
-            const allFlashcards = flashcardSnapshots.flatMap(snapshot => 
-                snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Flashcard))
-            );
 
+            const allFlashcards = flashcardSnapshots.flatMap((snapshot, index) => {
+                const studySetId = setsInFolder[index].id;
+                return snapshot.docs.map(doc => ({
+                    ...doc.data(),
+                    id: doc.id,
+                    studySetId: studySetId,
+                } as Flashcard));
+            });
+            
             setCombinedFlashcards(allFlashcards);
 
         } catch (error) {
