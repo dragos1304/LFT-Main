@@ -7,7 +7,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 // In a real production app, the API key should be handled by a backend server/function
 // to avoid exposing it on the client-side. We initialize it here for demonstration.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
 
 
 /**

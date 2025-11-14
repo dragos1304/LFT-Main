@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, addDoc, setDoc, doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db } from '@/firebase';
 import type { StudySet, Keyword, Flashcard, Highlight, HighlightPosition } from '@/types';
 import { generateFlashcardForConcept } from '@/services/geminiService';
 import { IconSparkles } from '@/components/Icons';
