@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Learning Fast-Track</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/react-pdf-highlighter@5.2.0/dist/style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/es-react-pdf@1.0.1/dist/esm/Page/AnnotationLayer.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/es-react-pdf@1.0.1/dist/esm/Page/TextLayer.css">
   <script type="importmap">
 {
   "imports": {
@@ -16,14 +19,18 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
-    "pdfjs-dist": "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.mjs"
+    "firebase/storage": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage.js",
+    "pdfjs-dist": "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.mjs",
+    "recharts": "https://aistudiocdn.com/recharts@^2.13.1",
+    "react-pdf": "https://cdn.jsdelivr.net/npm/es-react-pdf@1.0.1/dist/esm/index.js",
+    "react-pdf-highlighter": "https://cdn.jsdelivr.net/npm/react-pdf-highlighter@5.2.0/dist/esm/index.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
   }
 }
 </script>
 </head>
   <body class="bg-gray-900 text-white">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-export type View = 'auth' | 'dashboard' | 'studySet';
+export type View = 'auth' | 'dashboard' | 'studySet' | 'progress';
 
 export type StudySourceType = 'pdf' | 'youtube' | 'audio' | 'video';
 
@@ -19,9 +19,11 @@ export interface StudySetDocument {
   id: string;
   userId: string;
   folderId?: string; // Optional for backward compatibility
+  classGroupId?: string; // For collaborative features
   title: string;
   sourceType: StudySourceType;
   sourceName: string;
+  sourceUrl?: string; // URL to the original file in Firebase Storage
   summaryText: string;
   hierarchicalOutline: OutlineNode;
 }
@@ -45,6 +47,7 @@ export interface Keyword {
 
 export interface Flashcard {
   id: string;
+  studySetId: string;
   frontText: string;
   backText: string;
   isUserEdited: boolean;
@@ -89,4 +92,22 @@ export interface GradedAnswer {
 export interface ProcessableFile {
   name: string;
   data: ArrayBuffer;
+}
+
+export interface HighlightLog {
+  highlighted_at: string; // ISO string
+  class_group_id: string;
+}
+
+// --- PDF Highlighter Types ---
+export interface HighlightPosition {
+  boundingRect: { x1: number; y1: number; x2: number; y2: number; width: number; height: number; pageNumber: number };
+  rects: Array<{ x1: number; y1: number; x2: number; y2: number; width: number; height: number; pageNumber: number }>;
+  pageNumber: number;
+}
+
+export interface Highlight {
+  id: string; // Firestore document ID
+  content: { text: string };
+  position: HighlightPosition;
 }

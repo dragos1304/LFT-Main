@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { collection, doc, getDocs, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, doc, getDocs, updateDoc, query, where, getCountFromServer, addDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import type { StudySet, StudySetDocument, OutlineNode, Keyword, Flashcard, PracticeQuestion, ChatMessage, GradedAnswer, BloomLevel } from '../types';
 import { getSocraticTutorResponse, gradeOpenEndedQuestion } from '../services/geminiService';
 import { IconArrowLeft, IconChevronDown, IconCube, IconPencil, IconSend, IconSparkles } from './Icons';
 import { FlashcardTrainer } from './FlashcardTrainer';
+import PDFHighlighter from './PDFHighlighter';
 
-type Tab = 'summary' | 'keywords' | 'flashcards' | 'quiz' | 'links';
+type Tab = 'summary' | 'keywords' | 'flashcards' | 'quiz' | 'links' | 'active-reading';
 
 // Helper: StarRating component
 const StarRating: React.FC<{ score: number; onRate: (rating: number) => void }> = ({ score, onRate }) => {
@@ -84,7 +85,6 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
           const data = d.data();
           return {
               id: d.id,
-              // FIX: Add studySetId to each flashcard for context.
               studySetId: studySetDoc.id,
               frontText: data.frontText || data.front_text,
               backText: data.backText || data.back_text,
@@ -175,6 +175,7 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
 
   // Flashcards Tab State
   const [isTrainerOpen, setIsTrainerOpen] = useState(false);
+  const [trainerDeck, setTrainerDeck] = useState<Flashcard[]>([]);
   const dueFlashcards = useMemo(() => {
       if (!studySet) return [];
       const now = new Date();
@@ -221,6 +222,7 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
   
   const tabs: { id: Tab, label: string }[] = [
     { id: 'summary', label: 'Summary' },
+    { id: 'active-reading', label: 'Active Reading' },
     { id: 'keywords', label: 'Exam Keywords' },
     { id: 'flashcards', label: 'Flashcards' },
     { id: 'quiz', label: 'Practice Quiz' },
@@ -235,10 +237,16 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
     switch (activeTab) {
         case 'summary':
             return <SummaryTab summary={summary} setSummary={setSummary} onSave={handleSummarySave} />;
+        case 'active-reading':
+            return <PDFHighlighter user={auth.currentUser!} studySet={studySet} />;
         case 'keywords':
             return <KeywordsTab keywords={studySet.keywords} onRate={handleKeywordRate} />;
         case 'flashcards':
-            return <FlashcardsTab flashcards={studySet.flashcards} dueCount={dueFlashcards.length} onStartTrainer={() => setIsTrainerOpen(true)} />;
+            return <FlashcardsTab 
+                        studySet={studySet} 
+                        dueFlashcards={dueFlashcards} 
+                        onStartTrainer={(deck) => { setTrainerDeck(deck); setIsTrainerOpen(true); }} 
+                    />;
         case 'quiz':
             return <QuizTab questions={studySet.practiceQuestions} isActive={isQuizActive} setIsActive={setIsQuizActive} />;
         case 'links':
@@ -282,7 +290,7 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
         </div>
       </header>
       <div className="border-b border-gray-700">
-        <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+        <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Tabs">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -301,8 +309,7 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
       <div className="mt-6">
         {renderContent()}
       </div>
-      {/* FIX: Removed studySetId prop as it's now part of the flashcard object. */}
-      {isTrainerOpen && <FlashcardTrainer flashcards={dueFlashcards} onClose={() => { setIsTrainerOpen(false); fetchSubCollections(); }} />}
+      {isTrainerOpen && <FlashcardTrainer flashcards={trainerDeck} onClose={() => { setIsTrainerOpen(false); fetchSubCollections(); }} />}
     </div>
   );
 };
@@ -357,27 +364,113 @@ const KeywordsTab: React.FC<{ keywords: Keyword[], onRate: (id: string, rating: 
     </div>
 );
 
-const FlashcardsTab: React.FC<{ flashcards: Flashcard[], dueCount: number, onStartTrainer: () => void }> = ({ flashcards, dueCount, onStartTrainer }) => (
+const FlashcardsTab: React.FC<{ 
+    studySet: StudySet; 
+    dueFlashcards: Flashcard[];
+    onStartTrainer: (deck: Flashcard[]) => void 
+}> = ({ studySet, dueFlashcards, onStartTrainer }) => {
+    const [deckType, setDeckType] = useState<'my' | 'class'>('my');
+    const [classVotedDeck, setClassVotedDeck] = useState<Flashcard[]>([]);
+    const [isClassDeckLoading, setIsClassDeckLoading] = useState(false);
+
+    const handleFetchClassDeck = useCallback(async () => {
+        const classGroupId = studySet.classGroupId || 'default_class_group'; // Fallback for demo
+        setIsClassDeckLoading(true);
+
+        try {
+            // 1. Get all study sets in the class group
+            const setsQuery = query(collection(db, 'study_sets'), where('classGroupId', '==', classGroupId));
+            const setsSnapshot = await getDocs(setsQuery);
+            const classStudySets = setsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudySetDocument));
+
+            // 2. Fetch all keywords and their highlight counts
+            const keywordPromises = classStudySets.map(s => getDocs(collection(db, `study_sets/${s.id}/keywords`)));
+            const keywordSnapshots = await Promise.all(keywordPromises);
+            
+            const allKeywords = keywordSnapshots.flatMap((snap, i) => {
+                const studySetId = classStudySets[i].id;
+                return snap.docs.map(d => ({ id: d.id, studySetId, ...d.data() } as Keyword & { studySetId: string }));
+            });
+            
+            const keywordScores = await Promise.all(allKeywords.map(async (kw) => {
+                const highlightsSnap = await getCountFromServer(collection(db, `study_sets/${kw.studySetId}/keywords/${kw.id}/Highlight_Log`));
+                return { keyword: kw, score: highlightsSnap.data().count };
+            }));
+
+            // 3. Find top 20% keywords
+            const sortedKeywords = keywordScores.sort((a, b) => b.score - a.score);
+            const topCount = Math.ceil(sortedKeywords.length * 0.2);
+            const topKeywords = sortedKeywords.slice(0, topCount);
+            const topKeywordTexts = new Set(topKeywords.map(item => item.keyword.text.toLowerCase()));
+            
+            if (topKeywordTexts.size === 0) {
+                 setClassVotedDeck([]);
+                 return;
+            }
+
+            // 4. Fetch all flashcards from the class
+            const flashcardPromises = classStudySets.map(s => getDocs(collection(db, `study_sets/${s.id}/flashcards`)));
+            const flashcardSnapshots = await Promise.all(flashcardPromises);
+            const allFlashcards = flashcardSnapshots.flatMap((snap, i) => snap.docs.map(d => ({ id: d.id, studySetId: classStudySets[i].id, ...d.data() } as Flashcard)));
+
+            // 5. Filter flashcards based on top keywords
+            const topVotedDeck = allFlashcards.filter(fc => 
+                topKeywordTexts.has(fc.frontText.toLowerCase()) || 
+                [...topKeywordTexts].some(kwText => fc.frontText.toLowerCase().includes(kwText) || fc.backText.toLowerCase().includes(kwText))
+            );
+
+            setClassVotedDeck(topVotedDeck);
+        } catch (error) {
+            console.error("Failed to fetch class top-voted deck:", error);
+            alert("Could not load the class-voted deck. Please try again.");
+        } finally {
+            setIsClassDeckLoading(false);
+        }
+    }, [studySet.classGroupId]);
+
+    useEffect(() => {
+        if (deckType === 'class') {
+            handleFetchClassDeck();
+        }
+    }, [deckType, handleFetchClassDeck]);
+
+    const currentDeck = deckType === 'my' ? studySet.flashcards : classVotedDeck;
+    const deckToStudy = deckType === 'my' ? dueFlashcards : classVotedDeck;
+
+    return (
     <div>
-        <button 
-            onClick={onStartTrainer} 
-            disabled={dueCount === 0}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg mb-6 transition duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-3"
-        >
-            <span>Study Flashcards</span>
-            <span className="bg-indigo-400 text-indigo-900 text-xs font-bold px-2 py-0.5 rounded-full">{dueCount} due</span>
-        </button>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {flashcards.map(fc => (
-                <div key={fc.id} className="bg-gray-800 p-4 rounded-lg">
-                    <p className="font-semibold text-gray-300">{fc.frontText}</p>
-                    <hr className="border-gray-700 my-2"/>
-                    <p className="text-gray-400">{fc.backText}</p>
-                </div>
-            ))}
+        <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2 rounded-lg bg-gray-800 p-1">
+                <button onClick={() => setDeckType('my')} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${deckType === 'my' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>My Study Set</button>
+                <button onClick={() => setDeckType('class')} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${deckType === 'class' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>Class Top-Voted</button>
+            </div>
+            <button 
+                onClick={() => onStartTrainer(deckToStudy)} 
+                disabled={(deckType === 'my' && dueFlashcards.length === 0) || (deckType === 'class' && classVotedDeck.length === 0) || isClassDeckLoading}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-3"
+            >
+                <span>Study Flashcards</span>
+                <span className="bg-indigo-400 text-indigo-900 text-xs font-bold px-2 py-0.5 rounded-full">{isClassDeckLoading ? '...' : deckToStudy.length}</span>
+            </button>
         </div>
+        
+        {isClassDeckLoading ? (
+             <div className="text-center py-10">Loading class deck...</div>
+        ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {currentDeck.map(fc => (
+                    <div key={fc.id} className="bg-gray-800 p-4 rounded-lg">
+                        <p className="font-semibold text-gray-300">{fc.frontText}</p>
+                        <hr className="border-gray-700 my-2"/>
+                        <p className="text-gray-400">{fc.backText}</p>
+                    </div>
+                ))}
+            </div>
+        )}
     </div>
-);
+    );
+};
+
 
 const QuizTab: React.FC<{ questions: PracticeQuestion[], isActive: boolean, setIsActive: (a: boolean) => void }> = ({ questions, isActive, setIsActive }) => {
   const bloomLevels: BloomLevel[] = ['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'];

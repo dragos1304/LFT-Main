@@ -1,12 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { User, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, doc, writeBatch, Timestamp, orderBy, updateDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from './firebase';
 import type { View, StudySet, StudySourceType, StudySetDocument, ProcessableFile, Folder, Flashcard } from './types';
 import { processNewSource } from './services/geminiService';
-import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical } from './components/Icons';
+import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical, IconChartBar } from './components/Icons';
 import StudySetView from './components/StudySetView';
 import { FlashcardTrainer } from './components/FlashcardTrainer';
+import ProgressDashboard from './components/ProgressDashboard';
 
 // AuthView Component
 const AuthView: React.FC<{
@@ -165,6 +167,17 @@ const AddSourceModal: React.FC<{
         setIsLoading(true);
         setError(null);
         try {
+            let downloadURL: string | undefined = undefined;
+
+            // Upload PDF to Firebase Storage
+            if (type === 'pdf' && typeof source !== 'string') {
+                 // FIX: `onProgress` is not defined. Use `setGenerationStep` to update the progress.
+                 setGenerationStep("Uploading document...");
+                 const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${source.name}`);
+                 await uploadBytes(storageRef, source.data);
+                 downloadURL = await getDownloadURL(storageRef);
+            }
+
             const processedData = await processNewSource(source, type, setGenerationStep);
             const { keywords, flashcards, practiceQuestions, conceptLinks, ...coreData } = processedData;
 
@@ -174,6 +187,7 @@ const AddSourceModal: React.FC<{
                 folderId: folderId,
                 summaryText: processedData.summaryText,
                 hierarchicalOutline: processedData.hierarchicalOutline,
+                sourceUrl: downloadURL,
             };
             
             const docRef = await addDoc(collection(db, "study_sets"), studySetDoc);
@@ -202,6 +216,7 @@ const AddSourceModal: React.FC<{
     ];
     
     const generationSteps = [
+        "Uploading document...",
         "Analyzing document...",
         "Generating summary & title...",
         "Building outline...",
@@ -277,7 +292,11 @@ const AddSourceModal: React.FC<{
 
 
 // DashboardView Component
-const DashboardView: React.FC<{ user: User; onSelectStudySet: (studySet: StudySetDocument) => void; }> = ({ user, onSelectStudySet }) => {
+const DashboardView: React.FC<{ 
+    user: User; 
+    onSelectStudySet: (studySet: StudySetDocument) => void; 
+    onSelectProgressView: () => void;
+}> = ({ user, onSelectStudySet, onSelectProgressView }) => {
     const [studySets, setStudySets] = useState<StudySetDocument[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -346,6 +365,7 @@ const DashboardView: React.FC<{ user: User; onSelectStudySet: (studySet: StudySe
             setStudySets(prev => prev.map(s => 
                 s.id === studySetId 
                     ? { ...s, folderId: newFolderId ?? undefined }
+                    // @ts-ignore
                     : s
             ));
         } catch (error) {
@@ -370,11 +390,16 @@ const DashboardView: React.FC<{ user: User; onSelectStudySet: (studySet: StudySe
             );
             const flashcardSnapshots = await Promise.all(flashcardPromises);
             
-            const allFlashcards = flashcardSnapshots.flatMap(snapshot => 
-                snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Flashcard))
-            );
+            const allFlashcards = flashcardSnapshots.flatMap((snapshot, index) => {
+                const studySetId = setsInFolder[index].id;
+                return snapshot.docs.map(doc => ({
+                    ...(doc.data() as Omit<Flashcard, 'id'|'studySetId'>),
+                    id: doc.id,
+                    studySetId: studySetId, 
+                }));
+            });
 
-            setCombinedFlashcards(allFlashcards);
+            setCombinedFlashcards(allFlashcards as Flashcard[]);
 
         } catch (error) {
             console.error("Failed to fetch flashcards for folder:", error);
@@ -472,9 +497,15 @@ const DashboardView: React.FC<{ user: User; onSelectStudySet: (studySet: StudySe
                     <IconBookOpen className="w-8 h-8 text-indigo-400" />
                     <h1 className="text-3xl font-bold text-white">My Study Sets</h1>
                 </div>
-                <button onClick={handleLogout} className="text-gray-400 hover:text-white" title="Sign Out">
-                    <IconLogout className="w-6 h-6" />
-                </button>
+                <div className="flex items-center gap-4">
+                     <button onClick={onSelectProgressView} className="flex items-center gap-2 text-sm bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition" title="View Progress">
+                        <IconChartBar className="w-5 h-5" />
+                        <span>View Progress</span>
+                    </button>
+                    <button onClick={handleLogout} className="text-gray-400 hover:text-white" title="Sign Out">
+                        <IconLogout className="w-6 h-6" />
+                    </button>
+                </div>
             </header>
 
             <div className="bg-gray-800 p-4 rounded-lg mb-8">
@@ -553,6 +584,7 @@ const App: React.FC = () => {
             setAuthLoading(false);
             if (!currentUser) {
                 setCurrentStudySetDoc(null);
+                setView('dashboard');
             }
         });
         return () => unsubscribe();
@@ -575,6 +607,10 @@ const App: React.FC = () => {
         setCurrentStudySetDoc(null);
         setView('dashboard');
     }, []);
+    
+    const handleSelectProgressView = useCallback(() => {
+        setView('progress');
+    }, []);
 
     if (authLoading) {
         return (
@@ -589,10 +625,15 @@ const App: React.FC = () => {
     }
 
     const renderContent = () => {
-        if (view === 'studySet' && currentStudySetDoc) {
-            return <StudySetView studySetDoc={currentStudySetDoc} onBack={handleBackToDashboard} />;
+        switch(view) {
+            case 'studySet':
+                return currentStudySetDoc ? <StudySetView studySetDoc={currentStudySetDoc} onBack={handleBackToDashboard} /> : <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
+            case 'progress':
+                return <ProgressDashboard user={user} onBack={handleBackToDashboard} />;
+            case 'dashboard':
+            default:
+                return <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
         }
-        return <DashboardView user={user} onSelectStudySet={handleSelectStudySet} />;
     };
     
     return <div className="antialiased">{renderContent()}</div>;

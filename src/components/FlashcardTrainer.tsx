@@ -47,7 +47,7 @@ export const FlashcardTrainer: React.FC<{
         if (!card || isProcessing) return;
         setIsProcessing(true);
 
-        const { stability, difficulty, lapses, state } = card;
+        const { stability, difficulty, lapses, state, studySetId } = card;
         const now = new Date();
         let new_difficulty, new_stability, next_due_date;
         let new_lapses = lapses;
@@ -91,8 +91,7 @@ export const FlashcardTrainer: React.FC<{
         }
 
         try {
-            // FIX: Use studySetId from the card object itself.
-            const cardRef = doc(db, `study_sets/${card.studySetId}/flashcards`, card.id);
+            const cardRef = doc(db, `study_sets/${studySetId}/flashcards`, card.id);
             await updateDoc(cardRef, {
                 difficulty: new_difficulty,
                 stability: new_stability,
