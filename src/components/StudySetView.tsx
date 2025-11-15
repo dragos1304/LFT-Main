@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { collection, doc, getDocs, updateDoc, query, where, getCountFromServer, addDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import type { StudySet, StudySetDocument, OutlineNode, Keyword, Flashcard, PracticeQuestion, ChatMessage, GradedAnswer, BloomLevel } from '@/types';
-import { getSocraticTutorResponse, gradeOpenEndedQuestion } from '@/services/geminiService';
-import { IconArrowLeft, IconChevronDown, IconCube, IconPencil, IconSend, IconSparkles } from '@/components/Icons';
-import { FlashcardTrainer } from '@/components/FlashcardTrainer';
-import PDFHighlighter from '@/components/PDFHighlighter';
+import type { StudySet, StudySetDocument, OutlineNode, Keyword, Flashcard, PracticeQuestion, ChatMessage, GradedAnswer, BloomLevel } from '../types';
+import { getSocraticTutorResponse, gradeOpenEndedQuestion } from '../services/geminiService';
+import { IconArrowLeft, IconChevronDown, IconCube, IconPencil, IconSend, IconSparkles } from './Icons';
+import { FlashcardTrainer } from './FlashcardTrainer';
+import PDFHighlighter from './PDFHighlighter';
 
 type Tab = 'summary' | 'keywords' | 'flashcards' | 'quiz' | 'links' | 'active-reading';
 

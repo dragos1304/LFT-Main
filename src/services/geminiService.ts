@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import * as pdfjsLib from 'pdfjs-dist';
-import type { StudySet, GradedAnswer, ChatMessage, PracticeQuestion, StudySourceType, OutlineNode, ProcessableFile, Flashcard } from '@/types';
+import type { StudySet, GradedAnswer, ChatMessage, PracticeQuestion, StudySourceType, OutlineNode, ProcessableFile, Flashcard } from '../types';
 
 // The workerSrc property needs to be specified for pdf.js to work.
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.mjs`;

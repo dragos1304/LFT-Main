@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import type { Flashcard } from '@/types';
-import { IconX } from '@/components/Icons';
+import type { Flashcard } from '../types';
+import { IconX } from './Icons';
 
 // CSS for the 3D flip effect. This is injected into the document head.
 const flipAnimationCSS = `
