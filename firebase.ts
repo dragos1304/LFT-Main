@@ -3,25 +3,6 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// FIX: To resolve TypeScript errors with `import.meta.env`, the `ImportMetaEnv`
-// and `ImportMeta` interfaces are augmented within a `declare global` block.
-// This avoids creating a module-scoped type that conflicts with Vite's global client types.
-declare global {
-  interface ImportMetaEnv {
-    readonly VITE_FIREBASE_API_KEY: string;
-    readonly VITE_FIREBASE_AUTH_DOMAIN: string;
-    readonly VITE_FIREBASE_PROJECT_ID: string;
-    readonly VITE_FIREBASE_STORAGE_BUCKET: string;
-    readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
-    readonly VITE_FIREBASE_APP_ID: string;
-    readonly VITE_FIREBASE_MEASUREMENT_ID: string;
-  }
-
-  interface ImportMeta {
-    readonly env: ImportMetaEnv;
-  }
-}
-
 // Firebase configuration is loaded from environment variables for security and flexibility.
 // In a Vite project, these are defined in a .env file at the project root.
 // Example: VITE_FIREBASE_API_KEY="your-api-key"
