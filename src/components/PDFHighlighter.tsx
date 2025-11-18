@@ -18,15 +18,15 @@ import {
 interface PDFHighlighterProps {
     user: User;
     studySet: StudySet;
+    directoryHandle: FileSystemDirectoryHandle;
 }
 
-const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet }) => {
+const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet, directoryHandle }) => {
     const [highlights, setHighlights] = useState<Highlight[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
     
-    // FIX: Adapt the highlights to match the structure expected by react-pdf-highlighter (IHighlight).
-    // The library requires a `comment` property, which is not part of our data model.
-    // We add a dummy comment object to satisfy the type requirement for rendering.
     const highlightsForRenderer = useMemo(() => {
         return highlights.map(highlight => ({
             ...highlight,
@@ -42,6 +42,49 @@ const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet }) => {
         });
         return () => unsubscribe();
     }, [studySet.id]);
+    
+    useEffect(() => {
+        let objectUrl: string | null = null;
+        
+        const loadPdf = async () => {
+            if (studySet.sourceType !== 'pdf') {
+                setFileError("Active Reading is only available for PDF documents.");
+                return;
+            }
+            if (!studySet.sourceName) {
+                setFileError("Source file name is missing for this study set.");
+                return;
+            }
+
+            try {
+                // Get a handle to the specific file from the connected directory.
+                const fileHandle = await directoryHandle.getFileHandle(studySet.sourceName);
+                // Get the file data.
+                const file = await fileHandle.getFile();
+                // Create a temporary URL that the PdfLoader can use.
+                objectUrl = URL.createObjectURL(file);
+                setPdfUrl(objectUrl);
+                setFileError(null);
+            } catch (error: any) {
+                console.error("Error accessing local file:", error);
+                if (error.name === 'NotFoundError') {
+                    setFileError(`File "${studySet.sourceName}" not found in your connected folder.`);
+                } else {
+                    setFileError("Could not read the PDF file. Please ensure permissions are granted.");
+                }
+            }
+        };
+
+        loadPdf();
+
+        return () => {
+            // Clean up the object URL to avoid memory leaks when the component unmounts.
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, [studySet.sourceName, studySet.sourceType, directoryHandle]);
+
 
     const processHighlightText = async (text: string) => {
         const textToSave = text.trim();
@@ -108,18 +151,22 @@ const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet }) => {
         await processHighlightText(highlight.content.text);
     };
 
-    if (!studySet.sourceUrl) {
+    if (fileError) {
         return (
             <div className="bg-gray-800 p-6 rounded-lg text-center">
-                <h2 className="text-xl font-bold mb-2">PDF Not Available</h2>
-                <p className="text-gray-400">The original PDF for this study set could not be found.</p>
+                <h2 className="text-xl font-bold mb-2">Could Not Load PDF</h2>
+                <p className="text-red-400">{fileError}</p>
             </div>
         );
+    }
+
+    if (!pdfUrl) {
+      return <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div></div>;
     }
     
     return (
         <div className="bg-gray-800 p-2 rounded-lg relative w-full h-[80vh]">
-            <PdfLoader url={studySet.sourceUrl} beforeLoad={<div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto mt-20"></div>}>
+            <PdfLoader url={pdfUrl} beforeLoad={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div></div>}>
                 {(pdfDocument) => (
                     <PdfHighlighter
                         pdfDocument={pdfDocument}
@@ -135,8 +182,6 @@ const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet }) => {
                             <Tip
                                 onOpen={transformSelection}
                                 onConfirm={() => {
-                                    // FIX: The `content.text` from the library is optional, and the `position` object
-                                    // needs to be transformed to match our internal `HighlightPosition` type.
                                     if (content.text) {
                                         const transformedPosition: HighlightPosition = {
                                             boundingRect: {
@@ -167,8 +212,6 @@ const PDFHighlighter: React.FC<PDFHighlighterProps> = ({ user, studySet }) => {
                             screenshot,
                             isScrolledTo
                         ) => {
-                            // FIX: Cast PdfHighlightComponent to `any` to work around a potential
-                            // issue with the library's TypeScript definitions that causes a type error.
                             const AnyPdfHighlightComponent = PdfHighlightComponent as any;
                              const component = highlight.position.rects.length > 1 
                                 ? <AreaHighlight

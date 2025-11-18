@@ -1,14 +1,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjs from 'pdfjs-dist';
 import type { StudySet, GradedAnswer, ChatMessage, PracticeQuestion, StudySourceType, OutlineNode, ProcessableFile, Flashcard } from '../types';
 
 // The workerSrc property needs to be specified for pdf.js to work.
 // Pointing to the worker from the same CDN as the main library to ensure module compatibility.
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@5.4.394/build/pdf.worker.mjs`;
+pdfjs.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@5.4.394/build/pdf.worker.mjs`;
 
 // In a real production app, the API key should be handled by a backend server/function
 // to avoid exposing it on the client-side. We initialize it here for demonstration.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 
 /**
@@ -19,7 +19,7 @@ const getTextFromPdf = async (file: ProcessableFile): Promise<string> => {
     // the original buffer, which is needed later for uploading to Firebase Storage.
     // This resolves the "Cannot perform Construct on a detached ArrayBuffer" error.
     const bufferCopy = file.data.slice(0);
-    const pdf = await pdfjsLib.getDocument({ data: bufferCopy }).promise;
+    const pdf = await pdfjs.getDocument({ data: bufferCopy }).promise;
     let fullText = '';
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);

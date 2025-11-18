@@ -1,14 +1,16 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { User, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, addDoc, query, where, getDocs, doc, writeBatch, Timestamp, orderBy, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from './firebase';
+// FIX: Removed unused 'Timestamp' import to prevent potential type conflicts.
+import { collection, addDoc, query, where, getDocs, doc, writeBatch, orderBy, updateDoc } from 'firebase/firestore';
+import { auth, db } from './firebase';
 import type { View, StudySet, StudySourceType, StudySetDocument, ProcessableFile, Folder, Flashcard } from './types';
 import { processNewSource } from './services/geminiService';
+import { getDirectoryHandle, saveDirectoryHandle, verifyPermission } from './services/fileSystemService';
 import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical, IconChartBar } from './components/Icons';
 import StudySetView from './components/StudySetView';
 import { FlashcardTrainer } from './components/FlashcardTrainer';
 import ProgressDashboard from './components/ProgressDashboard';
+import SelectDirectoryView from './components/SelectDirectoryView';
 
 // AuthView Component
 const AuthView: React.FC<{
@@ -167,26 +169,24 @@ const AddSourceModal: React.FC<{
         setIsLoading(true);
         setError(null);
         
-        let docRef;
-        let studySetDocData;
-
         try {
             // Step 1: Process with Gemini to get all study data.
             const processedData = await processNewSource(source, type, setGenerationStep);
 
-            // Step 2: Save the generated content to Firestore immediately. This is the most critical step.
+            // Step 2: Save the generated content to Firestore.
             setGenerationStep("Finalizing study set...");
             const { keywords, flashcards, practiceQuestions, ...coreData } = processedData;
 
-            studySetDocData = {
+            const studySetDocData = {
                 ...coreData,
                 userId: user.uid,
                 folderId: folderId,
                 summaryText: processedData.summaryText,
                 hierarchicalOutline: processedData.hierarchicalOutline,
+                // No sourceUrl for local files
             };
             
-            docRef = await addDoc(collection(db, "study_sets"), studySetDocData);
+            const docRef = await addDoc(collection(db, "study_sets"), studySetDocData);
 
             // Save all sub-collections in a batch write.
             const batch = writeBatch(db);
@@ -195,61 +195,23 @@ const AddSourceModal: React.FC<{
             practiceQuestions.forEach(pq => batch.set(doc(collection(db, `study_sets/${docRef.id}/practice_questions`)), pq));
             await batch.commit();
 
-            // The study set is now safely in the database. Add it to the local state.
+            // Add the new study set to local state and close the modal.
             const createdStudySet = { ...studySetDocData, id: docRef.id } as StudySetDocument;
             onAddStudySet(createdStudySet);
+            onClose();
 
         } catch (err: any) {
-            // This catches errors from the AI generation or initial database save.
             setError(err.message || 'Failed to create the study set. Please try again.');
             console.error(err);
             setIsLoading(false);
             setGenerationStep('');
-            return; // Exit if the core process fails.
-        }
-
-        // Step 3: Attempt to upload the source file. This is now a non-critical step.
-        // If this fails, the user still has their generated study set.
-        if (type === 'pdf' && typeof source !== 'string' && docRef) {
-            setGenerationStep("Uploading document...");
-            try {
-                const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${source.name}`);
-                const pdfBlob = new Blob([source.data], { type: 'application/pdf' });
-                const metadata = { contentType: 'application/pdf' };
-                
-                // Race the upload against a 10-second timeout to prevent getting stuck.
-                const uploadTask = uploadBytes(storageRef, pdfBlob, metadata);
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error("Upload timed out after 10 seconds")), 10000)
-                );
-        
-                await Promise.race([uploadTask, timeoutPromise]);
-
-                const downloadURL = await getDownloadURL(storageRef);
-
-                // If upload is successful, update the Firestore document with the URL.
-                await updateDoc(doc(db, 'study_sets', docRef.id), { sourceUrl: downloadURL });
-                
-                // Success, we can close the modal.
-                onClose();
-
-            } catch (uploadError) {
-                console.error("Firebase Storage upload failed:", uploadError);
-                // The upload failed, but the user's data is safe.
-                // Inform the user and leave the modal open for them to close manually.
-                setError("Success! Your study set is saved. However, the PDF upload failed. You can close this window and find your new set on the dashboard.");
-                setIsLoading(false);
-            }
-        } else {
-            // No file upload was necessary, so we're done.
-            onClose();
         }
     };
 
     const sourceOptions = [
-        { type: 'pdf' as StudySourceType, label: 'Upload PDF', icon: <IconPDF className="w-10 h-10" /> },
+        { type: 'pdf' as StudySourceType, label: 'Add PDF', icon: <IconPDF className="w-10 h-10" /> },
         { type: 'youtube' as StudySourceType, label: 'YouTube URL', icon: <IconYouTube className="w-10 h-10" /> },
-        { type: 'audio' as StudySourceType, label: 'Upload Audio/Video', icon: <IconAudio className="w-10 h-10" /> },
+        { type: 'audio' as StudySourceType, label: 'Add Audio/Video', icon: <IconAudio className="w-10 h-10" /> },
     ];
     
     const generationSteps = [
@@ -260,7 +222,6 @@ const AddSourceModal: React.FC<{
         "Creating flashcards...",
         "Writing practice questions...",
         "Finalizing study set...",
-        "Uploading document...",
     ];
 
     return (
@@ -378,8 +339,6 @@ const DashboardView: React.FC<{
 
     const handleAddStudySet = (newStudySet: StudySetDocument) => {
         setStudySets(prev => [newStudySet, ...prev]);
-        // Do not auto-navigate, let the user decide.
-        // onSelectStudySet(newStudySet);
     };
 
     const handleCreateFolder = async (e: React.FormEvent) => {
@@ -403,7 +362,7 @@ const DashboardView: React.FC<{
             setStudySets(prev => prev.map(s => 
                 s.id === studySetId 
                     ? { ...s, folderId: newFolderId ?? undefined }
-                    // @ts-ignore
+                    // FIX: Removed unnecessary @ts-ignore. The types are compatible.
                     : s
             ));
         } catch (error) {
@@ -615,6 +574,8 @@ const App: React.FC = () => {
     const [authLoading, setAuthLoading] = useState(true);
     const [view, setView] = useState<View>('dashboard');
     const [currentStudySetDoc, setCurrentStudySetDoc] = useState<StudySetDocument | null>(null);
+    const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
+    const [isCheckingHandle, setIsCheckingHandle] = useState(true);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -622,11 +583,35 @@ const App: React.FC = () => {
             setAuthLoading(false);
             if (!currentUser) {
                 setCurrentStudySetDoc(null);
+                setDirectoryHandle(null);
                 setView('dashboard');
             }
         });
         return () => unsubscribe();
     }, []);
+
+    useEffect(() => {
+        if (!user) return; // Only check for handle if user is logged in
+    
+        (async () => {
+            if (!window.showDirectoryPicker) {
+                console.warn("File System Access API not supported in this browser.");
+                alert("Your browser does not support the File System Access API, which is required for this app to load local PDFs. Please try a different browser like Chrome or Edge.");
+                setIsCheckingHandle(false);
+                return;
+            }
+            try {
+                const handle = await getDirectoryHandle();
+                if (handle && await verifyPermission(handle)) {
+                    setDirectoryHandle(handle);
+                }
+            } catch (error) {
+                console.error("Error retrieving directory handle:", error);
+            } finally {
+                setIsCheckingHandle(false);
+            }
+        })();
+    }, [user]);
 
     const handleLogin = async (email: string, pass: string) => {
         await signInWithEmailAndPassword(auth, email, pass);
@@ -634,6 +619,24 @@ const App: React.FC = () => {
     
     const handleSignUp = async (email: string, pass: string) => {
         await createUserWithEmailAndPassword(auth, email, pass);
+    };
+    
+    const handleLogout = () => {
+        signOut(auth);
+    };
+
+    const handleSelectDirectory = async () => {
+        try {
+            const handle = await window.showDirectoryPicker();
+            if (await verifyPermission(handle, true)) {
+                await saveDirectoryHandle(handle);
+                setDirectoryHandle(handle);
+            } else {
+                alert("Permission to access the directory was denied.");
+            }
+        } catch (error) {
+            console.error("Error selecting directory:", error);
+        }
     };
 
     const handleSelectStudySet = useCallback((studySetDoc: StudySetDocument) => {
@@ -650,7 +653,7 @@ const App: React.FC = () => {
         setView('progress');
     }, []);
 
-    if (authLoading) {
+    if (authLoading || isCheckingHandle) {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div>
@@ -661,20 +664,29 @@ const App: React.FC = () => {
     if (!user) {
         return <AuthView onLogin={handleLogin} onSignUp={handleSignUp} />;
     }
-
-    const renderContent = () => {
-        switch(view) {
-            case 'studySet':
-                return currentStudySetDoc ? <StudySetView studySetDoc={currentStudySetDoc} onBack={handleBackToDashboard} /> : <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
-            case 'progress':
-                return <ProgressDashboard user={user} onBack={handleBackToDashboard} />;
-            case 'dashboard':
-            default:
-                return <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
-        }
-    };
     
-    return <div className="antialiased">{renderContent()}</div>;
+    if (!directoryHandle) {
+        return <SelectDirectoryView onSelect={handleSelectDirectory} userEmail={user.email!} onLogout={handleLogout} />;
+    }
+
+    // FIX: Refactored conditional rendering to use a component variable.
+    // This avoids a potential TypeScript inference issue where an IIFE or inner function
+    // was being incorrectly typed as an object, causing a "not callable" error.
+    let contentToRender;
+    switch(view) {
+        case 'studySet':
+            contentToRender = currentStudySetDoc ? <StudySetView studySetDoc={currentStudySetDoc} onBack={handleBackToDashboard} directoryHandle={directoryHandle} /> : <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
+            break;
+        case 'progress':
+            contentToRender = <ProgressDashboard user={user} onBack={handleBackToDashboard} />;
+            break;
+        case 'dashboard':
+        default:
+            contentToRender = <DashboardView user={user} onSelectStudySet={handleSelectStudySet} onSelectProgressView={handleSelectProgressView} />;
+            break;
+    }
+    
+    return <div className="antialiased">{contentToRender}</div>;
 };
 
 export default App;

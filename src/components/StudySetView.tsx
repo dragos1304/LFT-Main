@@ -55,7 +55,11 @@ const OutlineViewer: React.FC<{ node: OutlineNode }> = ({ node }) => {
 
 
 // Main StudySetView Component
-const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void; }> = ({ studySetDoc, onBack }) => {
+const StudySetView: React.FC<{ 
+    studySetDoc: StudySetDocument; 
+    onBack: () => void; 
+    directoryHandle: FileSystemDirectoryHandle;
+}> = ({ studySetDoc, onBack, directoryHandle }) => {
   const [studySet, setStudySet] = useState<StudySet | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
@@ -238,7 +242,7 @@ const StudySetView: React.FC<{ studySetDoc: StudySetDocument; onBack: () => void
         case 'summary':
             return <SummaryTab summary={summary} setSummary={setSummary} onSave={handleSummarySave} />;
         case 'active-reading':
-            return <PDFHighlighter user={auth.currentUser!} studySet={studySet} />;
+            return <PDFHighlighter user={auth.currentUser!} studySet={studySet} directoryHandle={directoryHandle} />;
         case 'keywords':
             return <KeywordsTab keywords={studySet.keywords} onRate={handleKeywordRate} />;
         case 'flashcards':
