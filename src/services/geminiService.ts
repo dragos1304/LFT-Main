@@ -4,7 +4,7 @@ import type { StudySet, GradedAnswer, ChatMessage, PracticeQuestion, StudySource
 
 // The workerSrc property needs to be specified for pdf.js to work.
 // Pointing to the worker from the same CDN as the main library to ensure module compatibility.
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@5.4.394/build/pdf.worker.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@5.4.394/build/pdf.worker.mjs`;
 
 // In a real production app, the API key should be handled by a backend server/function
 // to avoid exposing it on the client-side. We initialize it here for demonstration.

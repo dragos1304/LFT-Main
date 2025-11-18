@@ -216,7 +216,15 @@ const AddSourceModal: React.FC<{
                 const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${source.name}`);
                 const pdfBlob = new Blob([source.data], { type: 'application/pdf' });
                 const metadata = { contentType: 'application/pdf' };
-                await uploadBytes(storageRef, pdfBlob, metadata);
+                
+                // Race the upload against a 10-second timeout to prevent getting stuck.
+                const uploadTask = uploadBytes(storageRef, pdfBlob, metadata);
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error("Upload timed out after 10 seconds")), 10000)
+                );
+        
+                await Promise.race([uploadTask, timeoutPromise]);
+
                 const downloadURL = await getDownloadURL(storageRef);
 
                 // If upload is successful, update the Firestore document with the URL.
