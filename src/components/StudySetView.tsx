@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { collection, doc, getDocs, updateDoc, query, where, getCountFromServer, addDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase';
+import { auth, db } from '../firebase';
 import type { StudySet, StudySetDocument, OutlineNode, Keyword, Flashcard, PracticeQuestion, ChatMessage, GradedAnswer, BloomLevel } from '../types';
 import { getSocraticTutorResponse, gradeOpenEndedQuestion } from '../services/geminiService';
 import { IconArrowLeft, IconChevronDown, IconCube, IconPencil, IconSend, IconSparkles } from './Icons';

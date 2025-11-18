@@ -3,7 +3,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { StudySet, GradedAnswer, ChatMessage, PracticeQuestion, StudySourceType, OutlineNode, ProcessableFile, Flashcard } from '../types';
 
 // The workerSrc property needs to be specified for pdf.js to work.
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.mjs`;
+// Pointing to the worker from the same CDN as the main library to ensure module compatibility.
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@5.4.394/build/pdf.worker.js`;
 
 // In a real production app, the API key should be handled by a backend server/function
 // to avoid exposing it on the client-side. We initialize it here for demonstration.
@@ -14,7 +15,11 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
  * Extracts text content from a PDF file's ArrayBuffer.
  */
 const getTextFromPdf = async (file: ProcessableFile): Promise<string> => {
-    const pdf = await pdfjsLib.getDocument({ data: file.data }).promise;
+    // By creating a copy with slice(0), we prevent pdf.js from "detaching"
+    // the original buffer, which is needed later for uploading to Firebase Storage.
+    // This resolves the "Cannot perform Construct on a detached ArrayBuffer" error.
+    const bufferCopy = file.data.slice(0);
+    const pdf = await pdfjsLib.getDocument({ data: bufferCopy }).promise;
     let fullText = '';
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -213,14 +218,22 @@ export const processNewSource = async (file: ProcessableFile | string, type: Stu
             lastReview: null,
             state: 'new',
         })),
-        practiceQuestions: questionsResponse.practice_questions.map((pq: any) => ({
-            bloomLevel: pq.bloom_level,
-            questionType: pq.question_type,
-            questionText: pq.question_text,
-            options: pq.options,
-            correctAnswer: pq.correct_answer,
-            aiGradingRubric: pq.ai_grading_rubric,
-        })),
+        practiceQuestions: questionsResponse.practice_questions.map((pq: any) => {
+            const questionData = {
+                bloomLevel: pq.bloom_level,
+                questionType: pq.question_type,
+                questionText: pq.question_text,
+                correctAnswer: pq.correct_answer,
+                aiGradingRubric: pq.ai_grading_rubric,
+            };
+
+            // Only include 'options' if it exists to avoid sending `undefined` to Firestore.
+            if (pq.options) {
+                return { ...questionData, options: pq.options };
+            }
+            
+            return questionData;
+        }),
     };
 
     return fullStudySet as StudySet;

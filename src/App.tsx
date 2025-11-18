@@ -2,9 +2,9 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { User, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, doc, writeBatch, Timestamp, orderBy, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from '../firebase';
+import { auth, db, storage } from './firebase';
 import type { View, StudySet, StudySourceType, StudySetDocument, ProcessableFile, Folder, Flashcard } from './types';
-import { processNewSource } from '../services/geminiService';
+import { processNewSource } from './services/geminiService';
 import { IconAudio, IconBookOpen, IconFolder, IconLogout, IconPDF, IconPlus, IconSparkles, IconX, IconYouTube, IconChevronDown, IconDotsVertical, IconChartBar } from './components/Icons';
 import StudySetView from './components/StudySetView';
 import { FlashcardTrainer } from './components/FlashcardTrainer';
@@ -166,45 +166,75 @@ const AddSourceModal: React.FC<{
     const handleSubmit = async (source: ProcessableFile | string, type: StudySourceType) => {
         setIsLoading(true);
         setError(null);
+        
+        let docRef;
+        let studySetDocData;
+
         try {
-            let downloadURL: string | undefined = undefined;
-
-            // Upload PDF to Firebase Storage
-            if (type === 'pdf' && typeof source !== 'string') {
-                 setGenerationStep("Uploading document...");
-                 const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${source.name}`);
-                 await uploadBytes(storageRef, source.data);
-                 downloadURL = await getDownloadURL(storageRef);
-            }
-
+            // Step 1: Process with Gemini to get all study data.
             const processedData = await processNewSource(source, type, setGenerationStep);
-            const { keywords, flashcards, practiceQuestions, conceptLinks, ...coreData } = processedData;
 
-            const studySetDoc: Omit<StudySetDocument, 'id'> = {
+            // Step 2: Save the generated content to Firestore immediately. This is the most critical step.
+            setGenerationStep("Finalizing study set...");
+            const { keywords, flashcards, practiceQuestions, ...coreData } = processedData;
+
+            studySetDocData = {
                 ...coreData,
                 userId: user.uid,
                 folderId: folderId,
                 summaryText: processedData.summaryText,
                 hierarchicalOutline: processedData.hierarchicalOutline,
-                sourceUrl: downloadURL,
             };
             
-            const docRef = await addDoc(collection(db, "study_sets"), studySetDoc);
+            docRef = await addDoc(collection(db, "study_sets"), studySetDocData);
 
+            // Save all sub-collections in a batch write.
             const batch = writeBatch(db);
             keywords.forEach(kw => batch.set(doc(collection(db, `study_sets/${docRef.id}/keywords`)), kw));
             flashcards.forEach(fc => batch.set(doc(collection(db, `study_sets/${docRef.id}/flashcards`)), fc));
             practiceQuestions.forEach(pq => batch.set(doc(collection(db, `study_sets/${docRef.id}/practice_questions`)), pq));
             await batch.commit();
-            
-            onAddStudySet({ ...studySetDoc, id: docRef.id });
-            onClose();
-        } catch (err) {
-            setError('Failed to process the source. Please try again.');
+
+            // The study set is now safely in the database. Add it to the local state.
+            const createdStudySet = { ...studySetDocData, id: docRef.id } as StudySetDocument;
+            onAddStudySet(createdStudySet);
+
+        } catch (err: any) {
+            // This catches errors from the AI generation or initial database save.
+            setError(err.message || 'Failed to create the study set. Please try again.');
             console.error(err);
-        } finally {
             setIsLoading(false);
             setGenerationStep('');
+            return; // Exit if the core process fails.
+        }
+
+        // Step 3: Attempt to upload the source file. This is now a non-critical step.
+        // If this fails, the user still has their generated study set.
+        if (type === 'pdf' && typeof source !== 'string' && docRef) {
+            setGenerationStep("Uploading document...");
+            try {
+                const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${source.name}`);
+                const pdfBlob = new Blob([source.data], { type: 'application/pdf' });
+                const metadata = { contentType: 'application/pdf' };
+                await uploadBytes(storageRef, pdfBlob, metadata);
+                const downloadURL = await getDownloadURL(storageRef);
+
+                // If upload is successful, update the Firestore document with the URL.
+                await updateDoc(doc(db, 'study_sets', docRef.id), { sourceUrl: downloadURL });
+                
+                // Success, we can close the modal.
+                onClose();
+
+            } catch (uploadError) {
+                console.error("Firebase Storage upload failed:", uploadError);
+                // The upload failed, but the user's data is safe.
+                // Inform the user and leave the modal open for them to close manually.
+                setError("Success! Your study set is saved. However, the PDF upload failed. You can close this window and find your new set on the dashboard.");
+                setIsLoading(false);
+            }
+        } else {
+            // No file upload was necessary, so we're done.
+            onClose();
         }
     };
 
@@ -215,14 +245,14 @@ const AddSourceModal: React.FC<{
     ];
     
     const generationSteps = [
-        "Uploading document...",
         "Analyzing document...",
         "Generating summary & title...",
         "Building outline...",
         "Extracting keywords...",
         "Creating flashcards...",
         "Writing practice questions...",
-        "Finalizing study set..."
+        "Finalizing study set...",
+        "Uploading document...",
     ];
 
     return (
@@ -281,9 +311,9 @@ const AddSourceModal: React.FC<{
                             </form>
                         ) : null}
                          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept={sourceType === 'pdf' ? '.pdf' : 'audio/*,video/*'}/>
-                        {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
                     </div>
                 )}
+                {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
             </div>
         </div>
     );
@@ -340,7 +370,8 @@ const DashboardView: React.FC<{
 
     const handleAddStudySet = (newStudySet: StudySetDocument) => {
         setStudySets(prev => [newStudySet, ...prev]);
-        onSelectStudySet(newStudySet);
+        // Do not auto-navigate, let the user decide.
+        // onSelectStudySet(newStudySet);
     };
 
     const handleCreateFolder = async (e: React.FormEvent) => {
